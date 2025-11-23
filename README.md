@@ -22,7 +22,7 @@ A lightweight Go-based web service that provides IP address to country/city look
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/alngrd/ip_2_country.git
 cd ip_2_country
 ```
 
@@ -106,3 +106,4 @@ ip_2_country/
 ├── data/            # IP location data CSV file
 └── main.go          # Application entry point
 ```
+
