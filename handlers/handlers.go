@@ -77,14 +77,6 @@ func (h *Handler) writeError(w http.ResponseWriter, message string, statusCode i
 }
 
 func getClientIP(r *http.Request) string {
-	// check proxy headers first
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// fallback to RemoteAddr
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
