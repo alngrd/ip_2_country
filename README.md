@@ -4,9 +4,11 @@ A lightweight Go-based web service that provides IP address to country/city look
 
 ## Features
 
-- IP address to country and city lookup
-- Rate limiting per IP address
+- IPv4 and IPv6 address to country and city lookup
+- CIDR range and exact IP matching in the database
+- Sliding window rate limiting per IP address
 - CSV-based database for IP location data
+- Graceful shutdown on SIGINT/SIGTERM
 - Docker support
 - Configurable via environment variables
 
@@ -50,17 +52,27 @@ go run main.go
 
 The service will start on the configured port (default: 8080).
 
-### API Usage
+### Running Tests
 
-**Endpoint:** `GET /find-country?ip=<ip_address>`
+```bash
+go test ./...
+```
+
+End-to-end tests are in `test/e2e/` and require a running service with the default CSV database.
+
+## API
+
+### Endpoint
+
+`GET /v1/find-country?ip=<ip_address>`
 
 **Example:**
 
 ```bash
-curl http://localhost:8080/find-country?ip=8.8.8.8
+curl http://localhost:8080/v1/find-country?ip=8.8.8.8
 ```
 
-**Response:**
+**Success Response (200):**
 
 ```json
 {
@@ -69,12 +81,23 @@ curl http://localhost:8080/find-country?ip=8.8.8.8
 }
 ```
 
-**Error Responses:**
+**Error Response format:**
 
-- `400 Bad Request`: Missing or invalid IP parameter
-- `404 Not Found`: IP address not found in database
-- `429 Too Many Requests`: Rate limit exceeded
-- `500 Internal Server Error`: Server error
+```json
+{
+  "error": "<message>"
+}
+```
+
+**Error Status Codes:**
+
+| Status | Meaning |
+|--------|---------|
+| `400 Bad Request` | Missing or invalid `ip` query parameter |
+| `404 Not Found` | IP address not found in the database |
+| `405 Method Not Allowed` | Non-GET request |
+| `429 Too Many Requests` | Rate limit exceeded |
+| `500 Internal Server Error` | Internal server error |
 
 ## Docker
 
@@ -87,22 +110,38 @@ docker run -p 8080:8080 ip2country
 
 ## Configuration
 
-The service can be configured using environment variables or a `.env` file:
+The service is configured via environment variables or a `.env` file:
 
-- `PORT`: Server port (default: 8080)
-- `RATE_LIMIT_RPS`: Rate limit requests per second per IP (default: 10)
-- `DATABASE_TYPE`: Database type (default: csv)
-- `DATABASE_PATH`: Path to database file (default: data/ip2country.csv)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Server port |
+| `RATE_LIMIT_RPS` | `10` | Max requests per second per IP (must be > 0) |
+| `DATABASE_TYPE` | `csv` | Database type (currently only `csv`) |
+| `DATABASE_PATH` | `data/ip2country.csv` | Path to the CSV database file |
+
+## CSV Database Format
+
+The CSV file must have columns in the order `ip, city, country`. An optional header row is auto-detected and skipped.
+
+```
+ip,city,country
+8.8.8.8,Mountain View,United States
+192.168.1.0/24,San Francisco,United States
+2001:db8::/32,Amsterdam,Netherlands
+```
+
+Both single IP addresses and CIDR ranges are supported. CIDR lookups use longest-prefix matching.
 
 ## Project Structure
 
 ```
 ip_2_country/
-├── config/          # Configuration management
-├── database/        # Database abstraction and CSV implementation
+├── config/          # Configuration loading
+├── database/        # Database abstraction, CSV implementation
 ├── handlers/        # HTTP request handlers
-├── ratelimit/       # Rate limiting implementation
-├── server/          # Server setup and lifecycle
+├── ratelimit/       # Sliding window rate limiter
+├── server/          # Server setup, start, and graceful shutdown
+├── test/e2e/        # End-to-end tests
 ├── data/            # IP location data CSV file
 └── main.go          # Application entry point
 ```
