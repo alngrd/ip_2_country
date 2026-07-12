@@ -57,6 +57,7 @@ func getEnvAsInt(key string, defaultValue int) int {
 	}
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
+		log.Printf("Warning: invalid value %q for %s, using default %d", valueStr, key, defaultValue)
 		return defaultValue
 	}
 	return value

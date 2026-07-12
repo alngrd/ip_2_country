@@ -50,6 +50,15 @@ func (db *CSVDatabase) loadEntries() error {
 		return err
 	}
 
+	// skip header row if the first field is not a valid IP or CIDR
+	if len(records) > 0 {
+		first := strings.TrimSpace(records[0][0])
+		_, _, cidrErr := net.ParseCIDR(first)
+		if cidrErr != nil && net.ParseIP(first) == nil {
+			records = records[1:]
+		}
+	}
+
 	for _, record := range records {
 		if len(record) < 3 {
 			continue
