@@ -12,10 +12,8 @@ import (
 // Format: ip,city,country
 // Supports both single IPs and CIDR ranges like 192.168.1.0/24
 type CSVDatabase struct {
-	file        *os.File
-	reader      *csv.Reader
-	exactIPs    map[string]*Location
-	cidrByNet   map[string][]cidrEntry
+	exactIPs  map[string]*Location
+	cidrByNet map[string][]cidrEntry
 }
 
 type cidrEntry struct {
@@ -28,24 +26,22 @@ func NewCSVDatabase(filePath string) (*CSVDatabase, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database file: %w", err)
 	}
+	defer file.Close()
 
 	db := &CSVDatabase{
-		file:      file,
-		reader:    csv.NewReader(file),
 		exactIPs:  make(map[string]*Location, 1000),
 		cidrByNet: make(map[string][]cidrEntry, 1000),
 	}
 
-	if err := db.loadEntries(); err != nil {
-		file.Close()
+	if err := db.loadEntries(csv.NewReader(file)); err != nil {
 		return nil, fmt.Errorf("failed to load database entries: %w", err)
 	}
 
 	return db, nil
 }
 
-func (db *CSVDatabase) loadEntries() error {
-	records, err := db.reader.ReadAll()
+func (db *CSVDatabase) loadEntries(reader *csv.Reader) error {
+	records, err := reader.ReadAll()
 	if err != nil {
 		return err
 	}
@@ -170,9 +166,6 @@ func (db *CSVDatabase) FindLocation(ip net.IP) (*Location, error) {
 }
 
 func (db *CSVDatabase) Close() error {
-	if db.file != nil {
-		return db.file.Close()
-	}
 	return nil
 }
 
