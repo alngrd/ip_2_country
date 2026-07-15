@@ -2,90 +2,45 @@ package ratelimit
 
 import (
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 )
 
-type ipState struct {
-	mu       sync.Mutex
-	requests []time.Time
+type store interface {
+	allow(key string) bool
+	stop()
 }
 
 type RateLimiter struct {
-	states      sync.Map
-	ratePerSec  int
-	windowSize  time.Duration
-	cleanupTick *time.Ticker
-	stopCleanup chan bool
+	b store
 }
 
 func NewRateLimiter(requestsPerSecond int) *RateLimiter {
-	rl := &RateLimiter{
-		ratePerSec:  requestsPerSecond,
-		windowSize:  time.Second,
-		stopCleanup: make(chan bool),
+	return &RateLimiter{b: newMemoryStore(requestsPerSecond)}
+}
+
+// NewRateLimiterWithRedis returns a Redis-backed RateLimiter when redisURL is
+// non-empty and valid, falling back to in-memory otherwise.
+func NewRateLimiterWithRedis(requestsPerSecond int, redisURL string) *RateLimiter {
+	if redisURL != "" {
+		b, err := newRedisStore(requestsPerSecond, redisURL)
+		if err != nil {
+			log.Printf("ratelimit: invalid Redis URL (%v), falling back to in-memory", err)
+		} else {
+			return &RateLimiter{b: b}
+		}
 	}
-
-	rl.cleanupTick = time.NewTicker(1 * time.Minute)
-	go rl.cleanup()
-
-	return rl
+	return NewRateLimiter(requestsPerSecond)
 }
 
 func (rl *RateLimiter) Allow(key string) bool {
-	v, _ := rl.states.LoadOrStore(key, &ipState{})
-	state := v.(*ipState)
-
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
-	now := time.Now()
-	cutoff := now.Add(-rl.windowSize)
-
-	filtered := make([]time.Time, 0)
-	for _, reqTime := range state.requests {
-		if reqTime.After(cutoff) {
-			filtered = append(filtered, reqTime)
-		}
-	}
-
-	if len(filtered) >= rl.ratePerSec {
-		state.requests = filtered
-		return false
-	}
-
-	state.requests = append(filtered, now)
-	return true
+	return rl.b.allow(key)
 }
 
-func (rl *RateLimiter) cleanup() {
-	for {
-		select {
-		case <-rl.cleanupTick.C:
-			cutoff := time.Now().Add(-5 * time.Minute)
-			rl.states.Range(func(key, value any) bool {
-				state := value.(*ipState)
-				state.mu.Lock()
-				hasRecent := false
-				for _, reqTime := range state.requests {
-					if reqTime.After(cutoff) {
-						hasRecent = true
-						break
-					}
-				}
-				state.mu.Unlock()
-				if !hasRecent {
-					rl.states.Delete(key)
-				}
-				return true
-			})
-		case <-rl.stopCleanup:
-			return
-		}
-	}
+func (rl *RateLimiter) Stop() {
+	rl.b.stop()
 }
 
 func Middleware(rl *RateLimiter) func(http.Handler) http.Handler {
@@ -114,9 +69,4 @@ func getClientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return ip
-}
-
-func (rl *RateLimiter) Stop() {
-	rl.cleanupTick.Stop()
-	close(rl.stopCleanup)
 }

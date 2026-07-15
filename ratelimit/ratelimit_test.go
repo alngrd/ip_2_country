@@ -122,13 +122,14 @@ func TestAllow_DifferentIPsAreIndependent(t *testing.T) {
 }
 
 func TestAllow_WindowReset(t *testing.T) {
-	rl := &RateLimiter{
+	ms := &memoryStore{
 		ratePerSec:  1,
 		windowSize:  50 * time.Millisecond,
 		stopCleanup: make(chan bool),
 	}
-	rl.cleanupTick = time.NewTicker(1 * time.Minute)
-	go rl.cleanup()
+	ms.cleanupTick = time.NewTicker(1 * time.Minute)
+	go ms.cleanup()
+	rl := &RateLimiter{b: ms}
 	defer rl.Stop()
 
 	if !rl.Allow("3.3.3.3") {
@@ -181,23 +182,67 @@ func TestAllow_ZeroRateNeverAllows(t *testing.T) {
 func TestStop_IdempotentCleanup(t *testing.T) {
 	rl := NewRateLimiter(10)
 	rl.Stop()
-	// Second Stop should not panic (stopCleanup channel is closed)
+	rl.Stop()
+}
+
+func TestNewRateLimiterWithRedis_InvalidURL_FallsBackToMemory(t *testing.T) {
+	rl := NewRateLimiterWithRedis(2, "redis://invalid-host-that-does-not-exist:6379")
+	defer rl.Stop()
+
+	if !rl.Allow("1.1.1.1") {
+		t.Fatal("first request should be allowed")
+	}
+	if !rl.Allow("1.1.1.1") {
+		t.Fatal("second request should be allowed (limit=2)")
+	}
+	if rl.Allow("1.1.1.1") {
+		t.Error("third request should be denied (limit=2)")
+	}
+}
+
+func TestNewRateLimiterWithRedis_EmptyURL_UsesMemory(t *testing.T) {
+	rl := NewRateLimiterWithRedis(1, "")
+	defer rl.Stop()
+
+	if !rl.Allow("2.2.2.2") {
+		t.Fatal("first request should be allowed")
+	}
+	if rl.Allow("2.2.2.2") {
+		t.Error("second request should be denied")
+	}
+}
+
+func TestMemoryStore_CleanupStartsLazily(t *testing.T) {
+	ms := newMemoryStore(10)
+
+	if ms.cleanupTick != nil {
+		t.Fatal("cleanupTick should be nil before first allow call")
+	}
+
+	ms.allow("1.1.1.1")
+
+	if ms.cleanupTick == nil {
+		t.Error("cleanupTick should be set after first allow call")
+	}
+
+	ms.stop()
 }
 
 func TestCleanup_RemovesStaleEntries(t *testing.T) {
-	// Build a RateLimiter with a very short cleanup tick so we don't wait a minute.
-	rl := &RateLimiter{
+	// Build a memoryStore with a very short cleanup tick so we don't wait a minute.
+	ms := &memoryStore{
 		ratePerSec:  10,
 		windowSize:  time.Second,
 		stopCleanup: make(chan bool),
 	}
-	rl.cleanupTick = time.NewTicker(20 * time.Millisecond)
-	go rl.cleanup()
+	ms.cleanupTick = time.NewTicker(20 * time.Millisecond)
+	go ms.cleanup()
+	rl := &RateLimiter{b: ms}
 	defer rl.Stop()
 
 	// Inject a stale entry directly — last request was 10 minutes ago.
 	stale := &ipState{requests: []time.Time{time.Now().Add(-10 * time.Minute)}}
-	rl.states.Store("stale.ip", stale)
+	ms.states.Store("stale.ip", stale)
 
 	// Add a fresh entry that must survive cleanup.
 	rl.Allow("fresh.ip")
@@ -205,10 +250,10 @@ func TestCleanup_RemovesStaleEntries(t *testing.T) {
 	// Wait long enough for at least one cleanup tick to fire.
 	time.Sleep(60 * time.Millisecond)
 
-	if _, exists := rl.states.Load("stale.ip"); exists {
+	if _, exists := ms.states.Load("stale.ip"); exists {
 		t.Error("stale entry should have been removed by cleanup")
 	}
-	if _, exists := rl.states.Load("fresh.ip"); !exists {
+	if _, exists := ms.states.Load("fresh.ip"); !exists {
 		t.Error("fresh entry should not have been removed by cleanup")
 	}
 }

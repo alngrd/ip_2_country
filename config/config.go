@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	Port         string `env:"PORT"         envDefault:"8080"`
+	Port         string `env:"PORT"           envDefault:"8080"`
 	RateLimitRPS int    `env:"RATE_LIMIT_RPS" envDefault:"10"`
 	DatabaseURL  string `env:"DATABASE_URL,notEmpty"`
+	RedisURL     string `env:"REDIS_URL"`
 }
 
 func Load() (*Config, error) {
