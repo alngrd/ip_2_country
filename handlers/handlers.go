@@ -3,34 +3,22 @@ package handlers
 import (
 	"encoding/json"
 	"ip2country/database"
-	"ip2country/ratelimit"
 	"log"
 	"net"
 	"net/http"
-	"strings"
 )
 
 type Handler struct {
-	db          database.Database
-	rateLimiter *ratelimit.RateLimiter
+	db database.Database
 }
 
-func NewHandler(db database.Database, rateLimiter *ratelimit.RateLimiter) *Handler {
-	return &Handler{
-		db:          db,
-		rateLimiter: rateLimiter,
-	}
+func NewHandler(db database.Database) *Handler {
+	return &Handler{db: db}
 }
 
 func (h *Handler) FindCountry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	clientIP := getClientIP(r)
-	if !h.rateLimiter.Allow(clientIP) {
-		h.writeError(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
@@ -77,17 +65,4 @@ func (h *Handler) writeError(w http.ResponseWriter, message string, statusCode i
 	})
 }
 
-func getClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i != -1 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
-}
 

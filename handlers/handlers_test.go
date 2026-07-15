@@ -10,7 +10,6 @@ import (
 
 	"ip2country/database"
 	"ip2country/handlers"
-	"ip2country/ratelimit"
 )
 
 // mockDB implements database.Database for testing.
@@ -25,9 +24,8 @@ func (m *mockDB) FindLocation(_ net.IP) (*database.Location, error) {
 
 func (m *mockDB) Close() error { return nil }
 
-func newHandler(db database.Database, rps int) *handlers.Handler {
-	rl := ratelimit.NewRateLimiter(rps)
-	return handlers.NewHandler(db, rl)
+func newHandler(db database.Database) *handlers.Handler {
+	return handlers.NewHandler(db)
 }
 
 func get(handler *handlers.Handler, url string) *httptest.ResponseRecorder {
@@ -49,7 +47,7 @@ func decodeBody(t *testing.T, rr *httptest.ResponseRecorder) map[string]string {
 
 func TestFindCountry_ValidIP(t *testing.T) {
 	db := &mockDB{location: &database.Location{Country: "US", City: "New York"}}
-	h := newHandler(db, 100)
+	h := newHandler(db)
 	rr := get(h, "/v1/find-country?ip=1.1.1.1")
 
 	if rr.Code != http.StatusOK {
@@ -65,7 +63,7 @@ func TestFindCountry_ValidIP(t *testing.T) {
 }
 
 func TestFindCountry_MissingIPParam(t *testing.T) {
-	h := newHandler(&mockDB{}, 100)
+	h := newHandler(&mockDB{})
 	rr := get(h, "/v1/find-country")
 
 	if rr.Code != http.StatusBadRequest {
@@ -78,7 +76,7 @@ func TestFindCountry_MissingIPParam(t *testing.T) {
 }
 
 func TestFindCountry_InvalidIPFormat(t *testing.T) {
-	h := newHandler(&mockDB{}, 100)
+	h := newHandler(&mockDB{})
 	rr := get(h, "/v1/find-country?ip=not-an-ip")
 
 	if rr.Code != http.StatusBadRequest {
@@ -88,7 +86,7 @@ func TestFindCountry_InvalidIPFormat(t *testing.T) {
 
 func TestFindCountry_IPNotFound(t *testing.T) {
 	db := &mockDB{err: &database.NotFoundError{IP: "9.9.9.9"}}
-	h := newHandler(db, 100)
+	h := newHandler(db)
 	rr := get(h, "/v1/find-country?ip=9.9.9.9")
 
 	if rr.Code != http.StatusNotFound {
@@ -98,7 +96,7 @@ func TestFindCountry_IPNotFound(t *testing.T) {
 
 func TestFindCountry_DatabaseError(t *testing.T) {
 	db := &mockDB{err: fmt.Errorf("connection refused")}
-	h := newHandler(db, 100)
+	h := newHandler(db)
 	rr := get(h, "/v1/find-country?ip=1.1.1.1")
 
 	if rr.Code != http.StatusInternalServerError {
@@ -107,7 +105,7 @@ func TestFindCountry_DatabaseError(t *testing.T) {
 }
 
 func TestFindCountry_MethodNotAllowed(t *testing.T) {
-	h := newHandler(&mockDB{}, 100)
+	h := newHandler(&mockDB{})
 	req := httptest.NewRequest(http.MethodPost, "/v1/find-country?ip=1.1.1.1", nil)
 	req.RemoteAddr = "1.2.3.4:5678"
 	rr := httptest.NewRecorder()
@@ -118,113 +116,12 @@ func TestFindCountry_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-func TestFindCountry_RateLimited(t *testing.T) {
-	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
-	rl := ratelimit.NewRateLimiter(1)
-	h := handlers.NewHandler(db, rl)
-
-	makeReq := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
-		req.RemoteAddr = "5.5.5.5:1234"
-		rr := httptest.NewRecorder()
-		h.FindCountry(rr, req)
-		return rr
-	}
-
-	if rr := makeReq(); rr.Code != http.StatusOK {
-		t.Fatalf("first request should succeed, got %d", rr.Code)
-	}
-	if rr := makeReq(); rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("second request should be rate limited, got %d", rr.Code)
-	}
-}
-
 func TestFindCountry_IPv6Valid(t *testing.T) {
 	db := &mockDB{location: &database.Location{Country: "JP", City: "Tokyo"}}
-	h := newHandler(db, 100)
+	h := newHandler(db)
 	rr := get(h, "/v1/find-country?ip=2001:db8::1")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 for valid IPv6, got %d", rr.Code)
-	}
-}
-
-func TestFindCountry_XForwardedFor_SeparateBucketsPerClientIP(t *testing.T) {
-	// Two clients share the same RemoteAddr (load balancer) but have different
-	// X-Forwarded-For IPs. Rate limiting must bucket by client IP, not by the
-	// load balancer's address.
-	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
-	rl := ratelimit.NewRateLimiter(1)
-	h := handlers.NewHandler(db, rl)
-
-	makeReq := func(xff string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		req.Header.Set("X-Forwarded-For", xff)
-		rr := httptest.NewRecorder()
-		h.FindCountry(rr, req)
-		return rr
-	}
-
-	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusOK {
-		t.Fatalf("client A first request: expected 200, got %d", rr.Code)
-	}
-	if rr := makeReq("6.6.6.6"); rr.Code != http.StatusOK {
-		t.Fatalf("client B first request: expected 200 (separate bucket), got %d", rr.Code)
-	}
-	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("client A second request: expected 429, got %d", rr.Code)
-	}
-}
-
-func TestFindCountry_XForwardedFor_MultipleProxies_UsesClientIP(t *testing.T) {
-	// X-Forwarded-For can contain a chain: "client, proxy1, proxy2".
-	// Rate limiting must use the leftmost (original client) IP.
-	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
-	rl := ratelimit.NewRateLimiter(1)
-	h := handlers.NewHandler(db, rl)
-
-	makeReq := func(clientIP string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
-		req.RemoteAddr = "10.0.0.1:1234"
-		req.Header.Set("X-Forwarded-For", clientIP+", 10.0.0.2, 10.0.0.3")
-		rr := httptest.NewRecorder()
-		h.FindCountry(rr, req)
-		return rr
-	}
-
-	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusOK {
-		t.Fatalf("client A first request: expected 200, got %d", rr.Code)
-	}
-	if rr := makeReq("6.6.6.6"); rr.Code != http.StatusOK {
-		t.Fatalf("client B first request: expected 200 (separate bucket), got %d", rr.Code)
-	}
-	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("client A second request: expected 429, got %d", rr.Code)
-	}
-}
-
-func TestFindCountry_RemoteAddrWithoutPort(t *testing.T) {
-	// net.SplitHostPort fails when RemoteAddr has no port; getClientIP falls back
-	// to using the raw RemoteAddr as the rate-limit key. Verify the handler
-	// neither panics nor double-counts: two requests from the same portless addr
-	// should hit the rate limit on the second call.
-	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
-	rl := ratelimit.NewRateLimiter(1)
-	h := handlers.NewHandler(db, rl)
-
-	makeReq := func() *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
-		req.RemoteAddr = "10.0.0.1" // no port — SplitHostPort will fail
-		rr := httptest.NewRecorder()
-		h.FindCountry(rr, req)
-		return rr
-	}
-
-	if rr := makeReq(); rr.Code != http.StatusOK {
-		t.Fatalf("first request should succeed, got %d", rr.Code)
-	}
-	if rr := makeReq(); rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("second request should be rate-limited, got %d", rr.Code)
 	}
 }

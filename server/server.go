@@ -4,6 +4,7 @@ import (
 	"context"
 	"ip2country/config"
 	"ip2country/handlers"
+	"ip2country/ratelimit"
 	"log"
 	"net/http"
 	"os"
@@ -12,17 +13,24 @@ import (
 	"time"
 )
 
-func SetupServer(cfg *config.Config, handler *handlers.Handler) *http.Server {
+func SetupServer(cfg *config.Config, handler *handlers.Handler, rl *ratelimit.RateLimiter) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/find-country", handler.FindCountry)
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      chain(mux, ratelimit.Middleware(rl)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+}
+
+func chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		h = middlewares[i](h)
+	}
+	return h
 }
 
 func StartServer(server *http.Server, cfg *config.Config) {

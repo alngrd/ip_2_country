@@ -25,8 +25,8 @@ func main() {
 	rl := ratelimit.NewRateLimiter(cfg.RateLimitRPS)
 	defer rl.Stop()
 
-	handler := handlers.NewHandler(db, rl)
-	srv := server.SetupServer(cfg, handler)
+	handler := handlers.NewHandler(db)
+	srv := server.SetupServer(cfg, handler, rl)
 	server.StartServer(srv, cfg)
 	server.WaitForShutdown(srv)
 }

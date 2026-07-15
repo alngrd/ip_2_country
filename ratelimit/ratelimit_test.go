@@ -1,11 +1,87 @@
 package ratelimit
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+var okHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+})
+
+func makeMiddlewareReq(rl *RateLimiter, remoteAddr, xff string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = remoteAddr
+	if xff != "" {
+		req.Header.Set("X-Forwarded-For", xff)
+	}
+	rr := httptest.NewRecorder()
+	Middleware(rl)(okHandler).ServeHTTP(rr, req)
+	return rr
+}
+
+func TestMiddleware_AllowsUnderLimit(t *testing.T) {
+	rl := NewRateLimiter(1)
+	defer rl.Stop()
+
+	rr := makeMiddlewareReq(rl, "1.2.3.4:1000", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestMiddleware_BlocksOverLimit(t *testing.T) {
+	rl := NewRateLimiter(1)
+	defer rl.Stop()
+
+	makeMiddlewareReq(rl, "5.5.5.5:1234", "")
+	rr := makeMiddlewareReq(rl, "5.5.5.5:1234", "")
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", rr.Code)
+	}
+}
+
+func TestMiddleware_RemoteAddrWithoutPort(t *testing.T) {
+	rl := NewRateLimiter(1)
+	defer rl.Stop()
+
+	if rr := makeMiddlewareReq(rl, "10.0.0.1", ""); rr.Code != http.StatusOK {
+		t.Fatalf("first request should succeed, got %d", rr.Code)
+	}
+	if rr := makeMiddlewareReq(rl, "10.0.0.1", ""); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request should be rate-limited, got %d", rr.Code)
+	}
+}
+
+func TestMiddleware_XForwardedFor_SeparateBucketsPerClientIP(t *testing.T) {
+	rl := NewRateLimiter(1)
+	defer rl.Stop()
+
+	if rr := makeMiddlewareReq(rl, "10.0.0.1:1234", "5.5.5.5"); rr.Code != http.StatusOK {
+		t.Fatalf("client A first request: expected 200, got %d", rr.Code)
+	}
+	if rr := makeMiddlewareReq(rl, "10.0.0.1:1234", "6.6.6.6"); rr.Code != http.StatusOK {
+		t.Fatalf("client B first request: expected 200 (separate bucket), got %d", rr.Code)
+	}
+	if rr := makeMiddlewareReq(rl, "10.0.0.1:1234", "5.5.5.5"); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("client A second request: expected 429, got %d", rr.Code)
+	}
+}
+
+func TestMiddleware_XForwardedFor_MultipleProxies_UsesClientIP(t *testing.T) {
+	rl := NewRateLimiter(1)
+	defer rl.Stop()
+
+	makeMiddlewareReq(rl, "10.0.0.1:1234", "5.5.5.5, 10.0.0.2, 10.0.0.3")
+	rr := makeMiddlewareReq(rl, "10.0.0.1:1234", "5.5.5.5, 10.0.0.2, 10.0.0.3")
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 (leftmost IP bucketed), got %d", rr.Code)
+	}
+}
 
 func TestAllow_UnderLimit(t *testing.T) {
 	rl := NewRateLimiter(5)

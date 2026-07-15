@@ -28,9 +28,9 @@ func newTestServer(t *testing.T) *http.Server {
 	t.Helper()
 	rl := ratelimit.NewRateLimiter(100)
 	t.Cleanup(rl.Stop)
-	h := handlers.NewHandler(&stubDB{location: &database.Location{Country: "US", City: "NYC"}}, rl)
+	h := handlers.NewHandler(&stubDB{location: &database.Location{Country: "US", City: "NYC"}})
 	cfg := &config.Config{Port: "0", RateLimitRPS: 100, DatabaseURL: "csv:"}
-	return server.SetupServer(cfg, h)
+	return server.SetupServer(cfg, h, rl)
 }
 
 func TestSetupServer_KnownRouteIsHandled(t *testing.T) {
@@ -76,9 +76,9 @@ func TestSetupServer_TimeoutsConfigured(t *testing.T) {
 func TestSetupServer_PortFromConfig(t *testing.T) {
 	rl := ratelimit.NewRateLimiter(10)
 	t.Cleanup(rl.Stop)
-	h := handlers.NewHandler(&stubDB{}, rl)
+	h := handlers.NewHandler(&stubDB{})
 	cfg := &config.Config{Port: "9876"}
-	srv := server.SetupServer(cfg, h)
+	srv := server.SetupServer(cfg, h, rl)
 
 	if srv.Addr != ":9876" {
 		t.Errorf("expected server addr :9876, got %s", srv.Addr)
