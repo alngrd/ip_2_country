@@ -149,6 +149,61 @@ func TestFindCountry_IPv6Valid(t *testing.T) {
 	}
 }
 
+func TestFindCountry_XForwardedFor_SeparateBucketsPerClientIP(t *testing.T) {
+	// Two clients share the same RemoteAddr (load balancer) but have different
+	// X-Forwarded-For IPs. Rate limiting must bucket by client IP, not by the
+	// load balancer's address.
+	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
+	rl := ratelimit.NewRateLimiter(1)
+	h := handlers.NewHandler(db, rl)
+
+	makeReq := func(xff string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		req.Header.Set("X-Forwarded-For", xff)
+		rr := httptest.NewRecorder()
+		h.FindCountry(rr, req)
+		return rr
+	}
+
+	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusOK {
+		t.Fatalf("client A first request: expected 200, got %d", rr.Code)
+	}
+	if rr := makeReq("6.6.6.6"); rr.Code != http.StatusOK {
+		t.Fatalf("client B first request: expected 200 (separate bucket), got %d", rr.Code)
+	}
+	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("client A second request: expected 429, got %d", rr.Code)
+	}
+}
+
+func TestFindCountry_XForwardedFor_MultipleProxies_UsesClientIP(t *testing.T) {
+	// X-Forwarded-For can contain a chain: "client, proxy1, proxy2".
+	// Rate limiting must use the leftmost (original client) IP.
+	db := &mockDB{location: &database.Location{Country: "US", City: "NYC"}}
+	rl := ratelimit.NewRateLimiter(1)
+	h := handlers.NewHandler(db, rl)
+
+	makeReq := func(clientIP string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v1/find-country?ip=1.1.1.1", nil)
+		req.RemoteAddr = "10.0.0.1:1234"
+		req.Header.Set("X-Forwarded-For", clientIP+", 10.0.0.2, 10.0.0.3")
+		rr := httptest.NewRecorder()
+		h.FindCountry(rr, req)
+		return rr
+	}
+
+	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusOK {
+		t.Fatalf("client A first request: expected 200, got %d", rr.Code)
+	}
+	if rr := makeReq("6.6.6.6"); rr.Code != http.StatusOK {
+		t.Fatalf("client B first request: expected 200 (separate bucket), got %d", rr.Code)
+	}
+	if rr := makeReq("5.5.5.5"); rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("client A second request: expected 429, got %d", rr.Code)
+	}
+}
+
 func TestFindCountry_RemoteAddrWithoutPort(t *testing.T) {
 	// net.SplitHostPort fails when RemoteAddr has no port; getClientIP falls back
 	// to using the raw RemoteAddr as the rate-limit key. Verify the handler
