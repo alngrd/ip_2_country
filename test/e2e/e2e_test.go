@@ -37,13 +37,13 @@ func newServer(t *testing.T, rps int) *httptest.Server {
 	t.Helper()
 
 	factory := &database.Factory{}
-	db, err := factory.NewDatabase("csv", csvPath)
+	db, err := factory.NewDatabase("csv:" + csvPath)
 	if err != nil {
 		t.Fatalf("[server] failed to load %s: %v", csvPath, err)
 	}
 	rl := ratelimit.NewRateLimiter(rps)
 	h := handlers.NewHandler(db, rl)
-	cfg := &config.Config{Port: "0", RateLimitRPS: rps, DatabaseType: "csv", DatabasePath: csvPath}
+	cfg := &config.Config{Port: "0", RateLimitRPS: rps, DatabaseURL: "csv:" + csvPath}
 	srv := httptest.NewServer(server.SetupServer(cfg, h).Handler)
 
 	t.Cleanup(func() {

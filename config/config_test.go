@@ -12,8 +12,7 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("PORT", "")
 	t.Setenv("RATE_LIMIT_RPS", "")
-	t.Setenv("DATABASE_TYPE", "")
-	t.Setenv("DATABASE_PATH", "")
+	t.Setenv("DATABASE_URL", "csv:data/ip2country.csv")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -25,19 +24,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.RateLimitRPS != 10 {
 		t.Errorf("RateLimitRPS: expected 10, got %d", cfg.RateLimitRPS)
 	}
-	if cfg.DatabaseType != "csv" {
-		t.Errorf("DatabaseType: expected csv, got %s", cfg.DatabaseType)
-	}
-	if cfg.DatabasePath != "data/ip2country.csv" {
-		t.Errorf("DatabasePath: expected data/ip2country.csv, got %s", cfg.DatabasePath)
-	}
 }
 
 func TestLoad_EnvVarsOverrideDefaults(t *testing.T) {
 	t.Setenv("PORT", "9090")
 	t.Setenv("RATE_LIMIT_RPS", "50")
-	t.Setenv("DATABASE_TYPE", "csv")
-	t.Setenv("DATABASE_PATH", "/tmp/custom.csv")
+	t.Setenv("DATABASE_URL", "csv:/tmp/custom.csv")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -49,15 +41,40 @@ func TestLoad_EnvVarsOverrideDefaults(t *testing.T) {
 	if cfg.RateLimitRPS != 50 {
 		t.Errorf("RateLimitRPS: expected 50, got %d", cfg.RateLimitRPS)
 	}
-	if cfg.DatabasePath != "/tmp/custom.csv" {
-		t.Errorf("DatabasePath: expected /tmp/custom.csv, got %s", cfg.DatabasePath)
+	if cfg.DatabaseURL != "csv:/tmp/custom.csv" {
+		t.Errorf("DatabaseURL: expected csv:/tmp/custom.csv, got %s", cfg.DatabaseURL)
+	}
+}
+
+func TestLoad_DatabaseURL_Validation(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "empty DATABASE_URL errors", url: "", wantErr: true},
+		{name: "valid csv URL succeeds", url: "csv:data/ip2country.csv", wantErr: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("RATE_LIMIT_RPS", "10")
+			t.Setenv("DATABASE_URL", tc.url)
+
+			_, err := config.Load()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
 func TestLoad_RateLimitRPS_Validation(t *testing.T) {
 	base := map[string]string{
-		"DATABASE_TYPE": "csv",
-		"DATABASE_PATH": "data/ip2country.csv",
+		"DATABASE_URL": "csv:data/ip2country.csv",
 	}
 
 	tests := []struct {
@@ -69,8 +86,8 @@ func TestLoad_RateLimitRPS_Validation(t *testing.T) {
 		{name: "zero", value: "0", wantErr: true},
 		{name: "negative", value: "-1", wantErr: true},
 		{name: "valid positive", value: "5", wantErr: false, wantRPS: 5},
-		// Non-numeric falls back to the default (10) instead of erroring.
-		{name: "non-numeric falls back to default", value: "abc", wantErr: false, wantRPS: 10},
+		// Non-numeric is an invalid value and should return an error.
+		{name: "non-numeric returns error", value: "abc", wantErr: true},
 	}
 
 	for _, tc := range tests {

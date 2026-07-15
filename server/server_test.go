@@ -29,7 +29,7 @@ func newTestServer(t *testing.T) *http.Server {
 	rl := ratelimit.NewRateLimiter(100)
 	t.Cleanup(rl.Stop)
 	h := handlers.NewHandler(&stubDB{location: &database.Location{Country: "US", City: "NYC"}}, rl)
-	cfg := &config.Config{Port: "0", RateLimitRPS: 100, DatabaseType: "csv", DatabasePath: ""}
+	cfg := &config.Config{Port: "0", RateLimitRPS: 100, DatabaseURL: "csv:"}
 	return server.SetupServer(cfg, h)
 }
 

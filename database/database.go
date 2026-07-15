@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"net"
+	"net/url"
 )
 
 type Location struct {
@@ -17,12 +18,22 @@ type Database interface {
 
 type Factory struct{}
 
-func (f *Factory) NewDatabase(dbType, dbPath string) (Database, error) {
-	switch dbType {
+func (f *Factory) NewDatabase(dbURL string) (Database, error) {
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid database URL: %w", err)
+	}
+	switch u.Scheme {
 	case "csv":
-		return NewCSVDatabase(dbPath)
+		// Opaque form ("csv:relative/path") puts the path in u.Opaque;
+		// hierarchical form ("csv:///absolute/path") puts it in u.Path.
+		path := u.Opaque
+		if path == "" {
+			path = u.Path
+		}
+		return NewCSVDatabase(path)
 	default:
-		return nil, &UnsupportedDatabaseError{Type: dbType}
+		return nil, &UnsupportedDatabaseError{Type: u.Scheme}
 	}
 }
 

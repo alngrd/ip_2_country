@@ -16,7 +16,7 @@ func main() {
 	}
 
 	dbFactory := &database.Factory{}
-	db, err := dbFactory.NewDatabase(cfg.DatabaseType, cfg.DatabasePath)
+	db, err := dbFactory.NewDatabase(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}

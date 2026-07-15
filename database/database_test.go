@@ -21,7 +21,7 @@ func TestUnsupportedDatabaseError_Message(t *testing.T) {
 
 func TestFactory_UnsupportedType(t *testing.T) {
 	f := &Factory{}
-	_, err := f.NewDatabase("redis", "/some/path")
+	_, err := f.NewDatabase("redis://localhost:6379")
 	if err == nil {
 		t.Fatal("expected error for unsupported db type")
 	}

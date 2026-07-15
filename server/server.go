@@ -29,7 +29,7 @@ func StartServer(server *http.Server, cfg *config.Config) {
 	go func() {
 		log.Printf("Server starting on port %s", cfg.Port)
 		log.Printf("Rate limit: %d requests per second", cfg.RateLimitRPS)
-		log.Printf("Database type: %s, path: %s", cfg.DatabaseType, cfg.DatabasePath)
+		log.Printf("Database URL: %s", cfg.DatabaseURL)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}
