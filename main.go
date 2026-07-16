@@ -22,7 +22,21 @@ func main() {
 	}
 	defer db.Close()
 
-	rl := ratelimit.NewRateLimiterWithRedis(cfg.RateLimitRPS, cfg.RedisURL)
+	rl := ratelimit.NewRateLimiterWithRedis(ratelimit.Options{
+		RedisURL:          cfg.RedisURL,
+		MemoryFallbackRPS: cfg.RateLimitRPS,
+
+		BurstSuspicionThreshold: cfg.RateLimitBurstSuspicionThreshold,
+
+		PortLimit:  cfg.RateLimitPerPortLimit,
+		PortWindow: cfg.RateLimitPerPortWindow,
+
+		IPLimit:  cfg.RateLimitIPLimit,
+		IPWindow: cfg.RateLimitIPWindow,
+
+		NotFoundLimit:  cfg.RateLimitNotFoundLimit,
+		NotFoundWindow: cfg.RateLimitNotFoundWindow,
+	})
 	defer rl.Stop()
 
 	handler := handlers.NewHandler(db)

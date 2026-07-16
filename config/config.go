@@ -3,16 +3,29 @@ package config
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port         string `env:"PORT"           envDefault:"8080"`
-	RateLimitRPS int    `env:"RATE_LIMIT_RPS" envDefault:"10"`
-	DatabaseURL  string `env:"DATABASE_URL,notEmpty"`
-	RedisURL     string `env:"REDIS_URL"`
+	Port        string `env:"PORT"         envDefault:"8080"`
+	DatabaseURL string `env:"DATABASE_URL,notEmpty"`
+	RedisURL    string `env:"REDIS_URL"`
+
+	RateLimitRPS int `env:"RATE_LIMIT_RPS" envDefault:"10"`
+
+	RateLimitBurstSuspicionThreshold int `env:"RATE_LIMIT_BURST_SUSPICION_THRESHOLD" envDefault:"10"`
+
+	RateLimitPerPortLimit  int           `env:"RATE_LIMIT_PER_PORT_LIMIT"  envDefault:"300"`
+	RateLimitPerPortWindow time.Duration `env:"RATE_LIMIT_PER_PORT_WINDOW" envDefault:"1m"`
+
+	RateLimitIPLimit  int           `env:"RATE_LIMIT_IP_LIMIT"  envDefault:"2000"`
+	RateLimitIPWindow time.Duration `env:"RATE_LIMIT_IP_WINDOW" envDefault:"1m"`
+
+	RateLimitNotFoundLimit  int           `env:"RATE_LIMIT_NOT_FOUND_LIMIT"  envDefault:"20"`
+	RateLimitNotFoundWindow time.Duration `env:"RATE_LIMIT_NOT_FOUND_WINDOW" envDefault:"10m"`
 }
 
 func Load() (*Config, error) {

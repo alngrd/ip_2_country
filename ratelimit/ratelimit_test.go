@@ -88,7 +88,7 @@ func TestAllow_UnderLimit(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < 5; i++ {
-		if !rl.Allow("1.1.1.1") {
+		if rl.b.allow("1.1.1.1", "") != 0 {
 			t.Fatalf("request %d should be allowed (limit=5)", i+1)
 		}
 	}
@@ -99,9 +99,9 @@ func TestAllow_ExceedsLimit(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < 3; i++ {
-		rl.Allow("2.2.2.2")
+		rl.b.allow("2.2.2.2", "")
 	}
-	if rl.Allow("2.2.2.2") {
+	if rl.b.allow("2.2.2.2", "") == 0 {
 		t.Error("4th request within window should be denied (limit=3)")
 	}
 }
@@ -110,13 +110,13 @@ func TestAllow_DifferentIPsAreIndependent(t *testing.T) {
 	rl := NewRateLimiter(1)
 	defer rl.Stop()
 
-	if !rl.Allow("10.0.0.1") {
+	if rl.b.allow("10.0.0.1", "") != 0 {
 		t.Fatal("first request for 10.0.0.1 should be allowed")
 	}
-	if !rl.Allow("10.0.0.2") {
+	if rl.b.allow("10.0.0.2", "") != 0 {
 		t.Fatal("first request for 10.0.0.2 should be allowed (different IP)")
 	}
-	if rl.Allow("10.0.0.1") {
+	if rl.b.allow("10.0.0.1", "") == 0 {
 		t.Error("second request for 10.0.0.1 should be denied")
 	}
 }
@@ -132,16 +132,16 @@ func TestAllow_WindowReset(t *testing.T) {
 	rl := &RateLimiter{b: ms}
 	defer rl.Stop()
 
-	if !rl.Allow("3.3.3.3") {
+	if rl.b.allow("3.3.3.3", "") != 0 {
 		t.Fatal("first request should be allowed")
 	}
-	if rl.Allow("3.3.3.3") {
+	if rl.b.allow("3.3.3.3", "") == 0 {
 		t.Fatal("second request within window should be denied")
 	}
 
 	time.Sleep(60 * time.Millisecond)
 
-	if !rl.Allow("3.3.3.3") {
+	if rl.b.allow("3.3.3.3", "") != 0 {
 		t.Error("first request after window expiry should be allowed")
 	}
 }
@@ -157,7 +157,7 @@ func TestAllow_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if rl.Allow("4.4.4.4") {
+			if rl.b.allow("4.4.4.4", "") == 0 {
 				allowed.Add(1)
 			}
 		}()
@@ -174,7 +174,7 @@ func TestAllow_ZeroRateNeverAllows(t *testing.T) {
 	defer rl.Stop()
 
 	// ratePerSec=0: len(filtered) >= 0 is always true, so every request denied
-	if rl.Allow("5.5.5.5") {
+	if rl.b.allow("5.5.5.5", "") == 0 {
 		t.Error("with limit=0, all requests should be denied")
 	}
 }
@@ -186,28 +186,31 @@ func TestStop_IdempotentCleanup(t *testing.T) {
 }
 
 func TestNewRateLimiterWithRedis_InvalidURL_FallsBackToMemory(t *testing.T) {
-	rl := NewRateLimiterWithRedis(2, "redis://invalid-host-that-does-not-exist:6379")
+	rl := NewRateLimiterWithRedis(Options{
+		RedisURL:          "redis://invalid-host-that-does-not-exist:6379",
+		MemoryFallbackRPS: 2,
+	})
 	defer rl.Stop()
 
-	if !rl.Allow("1.1.1.1") {
+	if rl.b.allow("1.1.1.1", "") != 0 {
 		t.Fatal("first request should be allowed")
 	}
-	if !rl.Allow("1.1.1.1") {
+	if rl.b.allow("1.1.1.1", "") != 0 {
 		t.Fatal("second request should be allowed (limit=2)")
 	}
-	if rl.Allow("1.1.1.1") {
+	if rl.b.allow("1.1.1.1", "") == 0 {
 		t.Error("third request should be denied (limit=2)")
 	}
 }
 
 func TestNewRateLimiterWithRedis_EmptyURL_UsesMemory(t *testing.T) {
-	rl := NewRateLimiterWithRedis(1, "")
+	rl := NewRateLimiterWithRedis(Options{MemoryFallbackRPS: 1})
 	defer rl.Stop()
 
-	if !rl.Allow("2.2.2.2") {
+	if rl.b.allow("2.2.2.2", "") != 0 {
 		t.Fatal("first request should be allowed")
 	}
-	if rl.Allow("2.2.2.2") {
+	if rl.b.allow("2.2.2.2", "") == 0 {
 		t.Error("second request should be denied")
 	}
 }
@@ -219,7 +222,7 @@ func TestMemoryStore_CleanupStartsLazily(t *testing.T) {
 		t.Fatal("cleanupTick should be nil before first allow call")
 	}
 
-	ms.allow("1.1.1.1")
+	ms.allow("1.1.1.1", "")
 
 	if ms.cleanupTick == nil {
 		t.Error("cleanupTick should be set after first allow call")
@@ -242,18 +245,18 @@ func TestCleanup_RemovesStaleEntries(t *testing.T) {
 
 	// Inject a stale entry directly — last request was 10 minutes ago.
 	stale := &ipState{requests: []time.Time{time.Now().Add(-10 * time.Minute)}}
-	ms.states.Store("stale.ip", stale)
+	ms.states.Store("stale.ip:1234", stale)
 
 	// Add a fresh entry that must survive cleanup.
-	rl.Allow("fresh.ip")
+	rl.b.allow("fresh.ip", "5678")
 
 	// Wait long enough for at least one cleanup tick to fire.
 	time.Sleep(60 * time.Millisecond)
 
-	if _, exists := ms.states.Load("stale.ip"); exists {
+	if _, exists := ms.states.Load("stale.ip:1234"); exists {
 		t.Error("stale entry should have been removed by cleanup")
 	}
-	if _, exists := ms.states.Load("fresh.ip"); !exists {
+	if _, exists := ms.states.Load("fresh.ip:5678"); !exists {
 		t.Error("fresh entry should not have been removed by cleanup")
 	}
 }

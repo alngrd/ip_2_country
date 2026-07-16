@@ -28,7 +28,9 @@ func newMemoryStore(requestsPerSecond int) *memoryStore {
 	}
 }
 
-func (b *memoryStore) allow(key string) bool {
+// allow applies a basic sliding-window check keyed on IP only.
+// Returns 0 (allowed) or 3 (blast-shield equivalent blocked).
+func (b *memoryStore) allow(ip, port string) int {
 	b.startOnce.Do(func() {
 		if b.cleanupTick == nil {
 			b.cleanupTick = time.NewTicker(1 * time.Minute)
@@ -36,6 +38,7 @@ func (b *memoryStore) allow(key string) bool {
 		}
 	})
 
+	key := ip + ":" + port
 	v, _ := b.states.LoadOrStore(key, &ipState{})
 	state := v.(*ipState)
 
@@ -54,11 +57,11 @@ func (b *memoryStore) allow(key string) bool {
 
 	if len(filtered) >= b.ratePerSec {
 		state.requests = filtered
-		return false
+		return 3
 	}
 
 	state.requests = append(filtered, now)
-	return true
+	return 0
 }
 
 func (b *memoryStore) cleanup() {
@@ -87,6 +90,8 @@ func (b *memoryStore) cleanup() {
 		}
 	}
 }
+
+func (b *memoryStore) record404(_ string) {}
 
 func (b *memoryStore) stop() {
 	b.stopOnce.Do(func() {
