@@ -177,11 +177,18 @@ The service is designed to run behind a load balancer:
 
 ## Docker
 
-Build and run with Docker:
+Build and run the app together with Redis using Docker Compose:
 
 ```bash
-docker build -t ip2country .
-docker run -p 8080:8080 ip2country
+docker compose up --build
+```
+
+This starts a Redis instance and the app, and automatically connects the app to Redis via `REDIS_URL`. The app will be available on the configured port (default: 8080).
+
+To run in detached mode:
+
+```bash
+docker compose up --build -d
 ```
 
 ## Configuration
@@ -191,7 +198,7 @@ All settings are read from environment variables or a `.env` file. See `.env.exa
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8080` | Server listen port |
-| `DATABASE_URL` | *(required)* | Path or URL to the IP location CSV file |
+| `DATABASE_URL` | `csv:data/ip2country.csv` | Path or URL to the IP location CSV file |
 | `REDIS_URL` | *(empty)* | Redis connection URL; uses in-memory fallback when empty |
 | `RATE_LIMIT_RPS` | `10` | In-memory fallback requests/sec when Redis is unavailable |
 | `RATE_LIMIT_BURST_CAPACITY` | `20` | Token bucket capacity (Tier 1) |

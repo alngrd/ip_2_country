@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	Port        string `env:"PORT"         envDefault:"8080"`
-	DatabaseURL string `env:"DATABASE_URL,notEmpty"`
+	DatabaseURL string `env:"DATABASE_URL" envDefault:"csv:data/ip2country.csv"`
 	RedisURL    string `env:"REDIS_URL"`
 
 	RateLimitRPS int `env:"RATE_LIMIT_RPS" envDefault:"10"`

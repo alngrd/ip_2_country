@@ -11,7 +11,7 @@ import (
 
 // checkScript runs all rate-limit tiers atomically.
 //
-// KEYS[1]  rate_limit:tb:{IP}              – tier 1 token bucket hash (tokens, last_refill)
+// KEYS[1]  rate_limit:tb:{IP}[:{port}]     – tier 1 token bucket hash; keyed on IP+port when port is available, IP-only otherwise
 // KEYS[2]  rate_limit:ip:{IP}              – tier 3 sorted-set (global per-IP cap)
 // KEYS[3]  rate_limit:port:{IP}:{port}     – tier 2 sorted-set (per TCP connection)
 // KEYS[4]  rate_limit:404:block:{IP}       – 404 backoff block key (exists when blocked)
@@ -184,7 +184,7 @@ func (b *redisStore) allow(ip, port string) int {
 
 	result, err := checkScript.Run(ctx, b.client,
 		[]string{
-			"rate_limit:tb:" + ip,
+			tbKey(ip, port),
 			"rate_limit:ip:" + ip,
 			portKey(ip, port),
 			"rate_limit:404:block:" + ip,
@@ -222,6 +222,15 @@ func (b *redisStore) record404(ip string) {
 func (b *redisStore) stop() {
 	b.client.Close()
 	b.fallback.stop()
+}
+
+// tbKey returns the Tier 1 token bucket Redis key. Includes the port when
+// available so each TCP connection gets its own bucket; falls back to IP-only.
+func tbKey(ip, port string) string {
+	if port == "" {
+		return "rate_limit:tb:" + ip
+	}
+	return "rate_limit:tb:" + ip + ":" + port
 }
 
 // portKey returns the Tier 2 Redis key keyed on IP + source port, or an empty
