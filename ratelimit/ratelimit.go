@@ -15,7 +15,8 @@ type Options struct {
 	RedisURL          string
 	MemoryFallbackRPS int
 
-	BurstSuspicionThreshold int
+	BurstCapacity         int
+	BurstRefillRatePerSec float64
 
 	PortLimit  int
 	PortWindow time.Duration
@@ -23,8 +24,10 @@ type Options struct {
 	IPLimit  int
 	IPWindow time.Duration
 
-	NotFoundLimit  int
-	NotFoundWindow time.Duration
+	NotFoundLimit             int
+	NotFoundWindow            time.Duration
+	NotFoundBaseBlockDuration time.Duration
+	NotFoundMaxBlockDuration  time.Duration
 }
 
 type store interface {

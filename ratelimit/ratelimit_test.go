@@ -215,6 +215,36 @@ func TestNewRateLimiterWithRedis_EmptyURL_UsesMemory(t *testing.T) {
 	}
 }
 
+// TestNewRateLimiterWithRedis_BurstAndNotFoundOptions_FallsBackToMemory verifies
+// that the new token-bucket and 404-backoff options are accepted and that the
+// memory fallback still enforces its sliding-window limit when Redis is unavailable.
+// Token-bucket and 404-backoff tiers are Redis-only and require a live Redis
+// instance for integration testing.
+func TestNewRateLimiterWithRedis_BurstAndNotFoundOptions_FallsBackToMemory(t *testing.T) {
+	rl := NewRateLimiterWithRedis(Options{
+		RedisURL:          "redis://invalid-host-that-does-not-exist:6379",
+		MemoryFallbackRPS: 3,
+
+		BurstCapacity:         20,
+		BurstRefillRatePerSec: 10.0,
+
+		NotFoundLimit:             20,
+		NotFoundWindow:            10 * time.Minute,
+		NotFoundBaseBlockDuration: time.Minute,
+		NotFoundMaxBlockDuration:  time.Hour,
+	})
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		if rl.b.allow("3.3.3.3", "") != 0 {
+			t.Fatalf("request %d should be allowed by memory fallback (limit=3)", i+1)
+		}
+	}
+	if rl.b.allow("3.3.3.3", "") == 0 {
+		t.Error("4th request should be denied by memory fallback (limit=3)")
+	}
+}
+
 func TestMemoryStore_CleanupStartsLazily(t *testing.T) {
 	ms := newMemoryStore(10)
 

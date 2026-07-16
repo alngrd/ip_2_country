@@ -26,7 +26,8 @@ func main() {
 		RedisURL:          cfg.RedisURL,
 		MemoryFallbackRPS: cfg.RateLimitRPS,
 
-		BurstSuspicionThreshold: cfg.RateLimitBurstSuspicionThreshold,
+		BurstCapacity:         cfg.RateLimitBurstCapacity,
+		BurstRefillRatePerSec: cfg.RateLimitBurstRefillRatePerSec,
 
 		PortLimit:  cfg.RateLimitPerPortLimit,
 		PortWindow: cfg.RateLimitPerPortWindow,
@@ -34,8 +35,10 @@ func main() {
 		IPLimit:  cfg.RateLimitIPLimit,
 		IPWindow: cfg.RateLimitIPWindow,
 
-		NotFoundLimit:  cfg.RateLimitNotFoundLimit,
-		NotFoundWindow: cfg.RateLimitNotFoundWindow,
+		NotFoundLimit:             cfg.RateLimitNotFoundLimit,
+		NotFoundWindow:            cfg.RateLimitNotFoundWindow,
+		NotFoundBaseBlockDuration: cfg.RateLimitNotFoundBaseBlockDuration,
+		NotFoundMaxBlockDuration:  cfg.RateLimitNotFoundMaxBlockDuration,
 	})
 	defer rl.Stop()
 

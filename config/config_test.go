@@ -5,6 +5,7 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"ip2country/config"
 )
@@ -64,6 +65,114 @@ func TestLoad_DatabaseURL_Validation(t *testing.T) {
 			_, err := config.Load()
 			if tc.wantErr && err == nil {
 				t.Fatalf("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_Defaults_NewBurstAndNotFoundFields(t *testing.T) {
+	t.Setenv("DATABASE_URL", "csv:data/ip2country.csv")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("unexpected error with defaults: %v", err)
+	}
+	if cfg.RateLimitBurstCapacity != 20 {
+		t.Errorf("BurstCapacity: expected 20, got %d", cfg.RateLimitBurstCapacity)
+	}
+	if cfg.RateLimitBurstRefillRatePerSec != 10.0 {
+		t.Errorf("BurstRefillRatePerSec: expected 10.0, got %f", cfg.RateLimitBurstRefillRatePerSec)
+	}
+	if cfg.RateLimitNotFoundBaseBlockDuration != time.Minute {
+		t.Errorf("NotFoundBaseBlockDuration: expected 1m, got %v", cfg.RateLimitNotFoundBaseBlockDuration)
+	}
+	if cfg.RateLimitNotFoundMaxBlockDuration != time.Hour {
+		t.Errorf("NotFoundMaxBlockDuration: expected 1h, got %v", cfg.RateLimitNotFoundMaxBlockDuration)
+	}
+}
+
+func TestLoad_BurstCapacity_Validation(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "csv:data/ip2country.csv"}
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "zero errors", value: "0", wantErr: true},
+		{name: "negative errors", value: "-1", wantErr: true},
+		{name: "valid positive", value: "10", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			t.Setenv("RATE_LIMIT_BURST_CAPACITY", tc.value)
+			_, err := config.Load()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for RATE_LIMIT_BURST_CAPACITY=%s, got nil", tc.value)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_BurstRefillRate_Validation(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "csv:data/ip2country.csv"}
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "zero errors", value: "0", wantErr: true},
+		{name: "negative errors", value: "-5", wantErr: true},
+		{name: "valid positive", value: "5.5", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			t.Setenv("RATE_LIMIT_BURST_REFILL_RATE_PER_SEC", tc.value)
+			_, err := config.Load()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for RATE_LIMIT_BURST_REFILL_RATE_PER_SEC=%s, got nil", tc.value)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_NotFoundBlockDuration_Validation(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "csv:data/ip2country.csv"}
+	tests := []struct {
+		name     string
+		base     string
+		max      string
+		wantErr  bool
+	}{
+		{name: "zero base errors", base: "0s", max: "1h", wantErr: true},
+		{name: "max equal to base errors", base: "1m", max: "1m", wantErr: true},
+		{name: "max less than base errors", base: "10m", max: "1m", wantErr: true},
+		{name: "valid base and max", base: "1m", max: "1h", wantErr: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range base {
+				t.Setenv(k, v)
+			}
+			t.Setenv("RATE_LIMIT_NOT_FOUND_BASE_BLOCK_DURATION", tc.base)
+			t.Setenv("RATE_LIMIT_NOT_FOUND_MAX_BLOCK_DURATION", tc.max)
+			_, err := config.Load()
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error (base=%s, max=%s), got nil", tc.base, tc.max)
 			}
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
